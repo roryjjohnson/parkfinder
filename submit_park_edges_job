@@ -1,0 +1,68 @@
+#!/usr/bin/env python3
+from Pegasus.api import *
+from pathlib import Path
+import logging
+import argparse
+
+props = Properties()
+props["dagman.maxjobs"] = 2
+props["pegasus.transfer.setup.impl"] = "Transfer"
+
+props.write()
+
+# create a SiteCatalog object
+sc = SiteCatalog()
+
+# create a "local" site
+local = Site("local", arch=Arch.X86_64, os_type=OS.LINUX)
+
+# create and add a shared scratch and local storage directories to the site "local"
+local_shared_scratch_dir = Directory(Directory.SHARED_SCRATCH, path="/tmp/workflows/scratch")\
+                            .add_file_servers(FileServer("file:///tmp/workflows/scratch", Operation.ALL))
+
+local_local_storage_dir = Directory(Directory.LOCAL_STORAGE, path="/tmp/workflows/outputs")\
+                            .add_file_servers(FileServer("file:///tmp/workflows/outputs", Operation.ALL))
+
+local.add_directories(local_shared_scratch_dir, local_local_storage_dir)
+
+# add all the sites to the site catalog object
+sc.add_sites(
+    local
+)
+
+# write the site catalog to the default path "./sites.yml"
+sc.write()
+parser = argparse.ArgumentParser()
+parser.add_argument("--input","-i",type=str,required=True,nargs='+')
+args = parser.parse_args()
+base_files_in = args.input
+
+rc = ReplicaCatalog()
+for file in base_files_in:
+    rc.add_replica("local",file,Path(file).absolute().as_posix()).write()
+
+# Transformation Catalog
+
+enhancegreen = Transformation("enhance_green_imagery",site="local",pfn="/home/nuc/Pegasus/ParkFinder/enhance_green_imagery",is_stageable=True,arch=Arch.X86_64,os_type=OS.LINUX)
+edgedection = Transformation("canny_edge_process_and_combine",site="local",pfn="/home/nuc/Pegasus/ParkFinder/canny_edge_process_and_combine",is_stageable=True,arch=Arch.X86_64,os_type=OS.LINUX)
+tc = TransformationCatalog().add_transformations(enhancegreen,edgedection).write()
+
+# Worflow 
+wf = Workflow("park_edges")
+
+for file in base_files_in:
+    in_path = Path(file)
+    stem = in_path.stem
+    suffix = in_path.suffix     
+    input_file = File(file)
+    enhanced_green_output_file = File(stem+'_enhanced_green.png')
+    edge_detection_output_file = File(stem+'_edges.png')
+    job_enhancegreen = Job(enhancegreen).add_args("-i",input_file,"-o",enhanced_green_output_file).add_inputs(input_file).add_outputs(enhanced_green_output_file,stage_out=True)
+    job_edge_detection = Job(edgedection).add_args("-b",input_file,"-e",enhanced_green_output_file,"-o",edge_detection_output_file).add_inputs(input_file,enhanced_green_output_file).add_outputs(edge_detection_output_file,stage_out=True)
+    wf.add_jobs(job_enhancegreen,job_edge_detection)
+
+
+wf.write()
+wf.plan(submit=True).wait()
+
+

@@ -1,0 +1,63 @@
+#!/usr/bin/env python3
+
+import argparse
+import numpy as np
+import cv2 as cv
+import logging
+import traceback
+from pathlib import Path
+from matplotlib import pyplot as plt
+
+
+#run the canny edges algo from opencv to the
+#prepared file
+def process_canny_edges(edge_file):
+    
+    result = cv.Canny(edge_file,90,80.0,10).copy()
+    #make sure the result is converted to color for further manipulation
+    result = cv.cvtColor(result, cv.COLOR_GRAY2BGR)
+    
+    #dilate the edges so they show up more
+    kernel = np.ones((13,13), np.uint8)
+    result = cv.dilate(result,kernel)
+    
+    return result
+
+# get file(s) from command line
+parser = argparse.ArgumentParser()
+parser.add_argument("--base","-b",type=str,required=True)
+parser.add_argument("--edge","-e",type=str,required=True)
+parser.add_argument("--output","-o",type=str,required=False)
+args = parser.parse_args()
+base_file_in = args.base
+edge_file_in = args.edge
+file_out = args.output
+
+try:
+    output_file = ''
+    if file_out:
+        output_file = file_out  
+    else:
+        in_path = Path(base_file_in)
+        stem = in_path.stem
+        suffix = in_path.suffix     
+        containing_dir_path = str(in_path.parent)
+        output_file = containing_dir_path+'/'+stem+'_canny_edges_combined.png'
+    
+    base_image = cv.imread(base_file_in)
+    edge_image = cv.imread(edge_file_in)
+    derived_edge_image = process_canny_edges(edge_image)
+    
+    #dim the base image and overlay the edges over it
+    combined_image = (base_image / [1.5,1.5,1.5]) + derived_edge_image
+    
+    #write the file
+    cv.imwrite(output_file,combined_image)
+except:
+    logging.error('Error processing file '+base_file_in)
+    logging.error(traceback.format_exc())
+
+
+
+        
+

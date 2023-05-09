@@ -1,0 +1,72 @@
+#!/usr/bin/env python3
+
+import argparse
+import numpy as np
+import cv2 as cv
+import logging
+import traceback
+from pathlib import Path
+from matplotlib import pyplot as plt
+
+# get file(s) from command line
+parser = argparse.ArgumentParser()
+parser.add_argument("--input", "-i", type=str, required=True, nargs='+')
+parser.add_argument("--output", "-o", type=str, required=False, nargs='+')
+args = parser.parse_args()
+files_in = args.input
+files_out = args.output
+if files_out:
+    if len(files_out) != len(files_in):
+        raise Exception(
+            'Input files list size does not match output file list size')
+
+
+# loop through each file, enhance green thresholds and then use
+# dilate and erode to increase the gradient
+for i, file in enumerate(files_in):
+    try:
+        output_file = ''
+        if files_out:
+            output_file = files_out[i]
+        else:
+            in_path = Path(file)
+            stem = in_path.stem
+            suffix = in_path.suffix
+            containing_dir_path = str(in_path.parent)
+            output_file = containing_dir_path+'/'+stem+'_enhanced_green.png'
+        image = cv.imread(file, cv.IMREAD_COLOR)
+        result = image.copy()
+
+        # mask which finds colors that have a green component which is at least
+        # ten green higher than red and blue
+        mask = ((result[:, :, 1] - result[:, :, 0]) >
+                10) & ((result[:, :, 1] - result[:, :, 2]) > 10)
+        #intensify 100 to each color that fits mask
+        result[mask] = result[mask] + [100, 100, 100]
+        #reduce all non masked colors by 90%
+        result[~mask] = np.multiply(result[~mask], [0.1, 0.1, 0.1])
+        #turn all colors without at least 180 green to black
+        mask = (result[:, :, 1] < 180)
+        result[mask] = [0, 0, 0]
+
+        #11 x 11 kernel seems to work well
+        kernel = np.ones((11, 11), np.uint8)
+        
+        #erode,blur,dilate
+        result = cv.erode(result, kernel)
+        result = cv.blur(result, (10, 10))
+        result = cv.blur(result, (10, 10))
+        result = cv.blur(result, (10, 10))
+        result = cv.dilate(result, kernel)
+        result = cv.dilate(result, kernel)
+        result = cv.dilate(result, kernel)
+        result = cv.dilate(result, kernel)
+        result = cv.dilate(result, kernel)
+        result = cv.dilate(result, kernel)
+
+        #write out results
+        cv.imwrite(output_file, result)
+        
+    except:
+        logging.error('Error processing file '+file)
+        logging.error(traceback.format_exc())
